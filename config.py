@@ -20,7 +20,7 @@ _C.BASE = ['']
 # -----------------------------------------------------------------------------
 # Data settings
 # -----------------------------------------------------------------------------
-_C.DATA = CN()
+_C.DATA = CN(new_allowed=True)
 # Batch size for a single GPU, could be overwritten by command line argument
 _C.DATA.BATCH_SIZE = 128
 # Path to dataset, could be overwritten by command line argument
@@ -55,7 +55,7 @@ _C.MODEL.DAT = CN(new_allowed=True)
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------
-_C.TRAIN = CN()
+_C.TRAIN = CN(new_allowed=True)
 _C.TRAIN.START_EPOCH = 0
 _C.TRAIN.EPOCHS = 300
 _C.TRAIN.WARMUP_EPOCHS = 20
@@ -112,6 +112,28 @@ _C.AUG.MIXUP_PROB = 1.0
 _C.AUG.MIXUP_SWITCH_PROB = 0.5
 # How to apply mixup/cutmix params. Per "batch", "pair", or "elem"
 _C.AUG.MIXUP_MODE = 'batch'
+
+# -----------------------------------------------------------------------------
+# LOSS settings
+# -----------------------------------------------------------------------------
+_C.LOSS = CN(new_allowed=True)
+_C.LOSS.CE = 1.0
+_C.LOSS.OKS = 1.0
+_C.LOSS.KPT = 1.0
+_C.LOSS.BBOX = 1.0
+_C.LOSS.GIOU = 1.0
+_C.LOSS.OFFSET = 1.0
+_C.LOSS.ROOT = 1.0
+
+# -----------------------------------------------------------------------------
+# Visdom settings
+# -----------------------------------------------------------------------------
+_C.VISDOM = CN(new_allowed=True)
+
+# -----------------------------------------------------------------------------
+# Visdom settings
+# -----------------------------------------------------------------------------
+_C.RESUME = CN(new_allowed=True)
 
 # -----------------------------------------------------------------------------
 # Testing settings
@@ -173,13 +195,28 @@ def update_config(config, args):
         config.AMP = args.amp
     if args.output:
         config.OUTPUT = args.output
+    if args.eval_output:
+        config.EVAL_OUTPUT = args.eval_output
     if args.tag:
         config.TAG = args.tag
     if args.eval:
         config.EVAL_MODE = True
-
+    if args.aux_loss:
+        config.MODEL.DAT.aux_loss = args.aux_loss
+    if args.train_split:
+        config.DATA.train_split = args.train_split
+    if args.train_split_json:
+        config.DATA.train_split_json = args.train_split_json
+    if args.val_split:
+        config.DATA.val_split = args.val_split
+    if args.val_split_json:
+        config.DATA.val_split_json = args.val_split_json
+        
     # output folder
     config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)
+
+    # output eval folder
+    config.EVAL_OUTPUT = os.path.join(config.EVAL_OUTPUT, config.MODEL.NAME, config.TAG)
 
     config.freeze()
 

@@ -1,18 +1,18 @@
 MODEL:
   TYPE: dat
-  NAME: dat_base
+  NAME: dat_small
   DAT:
     img_size: 224
     patch_size: 4
     num_classes: 1
     expansion: 4
-    dim_stem: 128
-    dims: [128, 256, 512, 1024]
+    dim_stem: 96
+    dims: [96, 192, 384, 768]
     depths: [2, 2, 18, 2]
     stage_spec: [[L, S], [L, S], [L, D, L, D, L, D, L, D, L, D, L, D, L, D, L, D, L, D], [L, D]]
-    heads: [4, 8, 16, 32]
+    heads: [3, 6, 12, 24]
     window_sizes: [7, 7, 7, 7] 
-    groups: [-1, -1, 4, 8]
+    groups: [-1, -1, 3, 6]
     use_pes: [False, False, True, True]
     dwc_pes: [False, False, False, False]
     strides: [-1, -1, 1, 1]
@@ -24,8 +24,8 @@ MODEL:
     use_conv_patches: False
     drop_rate: 0.0
     attn_drop_rate: 0.0
-    drop_path_rate: 0.5
-    num_keypoints: 19
+    drop_path_rate: 0.3
+    num_keypoints: 17
     aux_loss: false
     def_layers: 10
 
@@ -58,13 +58,13 @@ LOSS:
 
 TRAIN:
   EPOCHS: 300
-  WARMUP_EPOCHS: 50
-  CLIP_GRAD: 1.0
-  BASE_LR: 4e-4
+  WARMUP_EPOCHS: 20
+  BASE_LR: 5e-4
+  VAL_INTERVAL: 20
 
 DATA:
   BATCH_SIZE: 16
-  DATASET: panoptic
+  DATASET: posetrack21
 
   overflow_boxes: true
   masks: false
@@ -75,12 +75,12 @@ DATA:
     size: [224,224]
 
   train_split: train
-  train_split_json: train_all
+  train_split_json: train
   val_split: val
-  val_split_json: val2
+  val_split_json: val
 
-  mot_path_train: /mnt/beegfs/work/ToyotaHPE/datasets/Panoptic
-  mot_path_val: /mnt/beegfs/work/ToyotaHPE/datasets/Panoptic
+  mot_path_train: /mnt/beegfs/work/ToyotaHPE/datasets/PoseTrack21/data
+  mot_path_val: /mnt/beegfs/work/ToyotaHPE/datasets/PoseTrack21/data
 
 SAVE_FREQ: 1
 

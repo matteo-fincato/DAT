@@ -104,6 +104,7 @@ ENV/
 .vscode
 # data/
 output/
+eval_output/
 
 clean_ckp.py
 

@@ -15,6 +15,20 @@ import torch.nn.functional as F
 import einops
 from timm.models.layers import to_2tuple, trunc_normal_
 
+class MLP(nn.Module):
+    """ Very simple multi-layer perceptron (also called FFN)"""
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        return x
+    
 class LocalAttention(nn.Module):
 
     def __init__(self, dim, heads, window_size, attn_drop, proj_drop):
@@ -86,7 +100,7 @@ class LocalAttention(nn.Module):
         x = self.proj_drop(self.proj_out(x)) # B' x N x C
         x = einops.rearrange(x, '(b r1 r2) (h1 w1) c -> b c (r1 h1) (r2 w1)', r1=r1, r2=r2, h1=self.window_size[0], w1=self.window_size[1]) # B x C x H x W
         
-        return x, None, None
+        return x, None, None, None, None, None
 
 class ShiftWindowAttention(LocalAttention):
 
@@ -119,10 +133,10 @@ class ShiftWindowAttention(LocalAttention):
     def forward(self, x):
 
         shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(2, 3))
-        sw_x, _, _ = super().forward(shifted_x, self.attn_mask)
+        sw_x, _, _, _, _, _ = super().forward(shifted_x, self.attn_mask)
         x = torch.roll(sw_x, shifts=(self.shift_size, self.shift_size), dims=(2, 3))
 
-        return x, None, None
+        return x, None, None, None, None, None
     
 
 class DAttentionBaseline(nn.Module):
@@ -131,7 +145,7 @@ class DAttentionBaseline(nn.Module):
         self, q_size, kv_size, n_heads, n_head_channels, n_groups,
         attn_drop, proj_drop, stride, 
         offset_range_factor, use_pe, dwc_pe,
-        no_off, fixed_pe, stage_idx
+        no_off, fixed_pe, stage_idx, num_keypoints, num_classes
     ):
 
         super().__init__()
@@ -149,7 +163,9 @@ class DAttentionBaseline(nn.Module):
         self.fixed_pe = fixed_pe
         self.no_off = no_off
         self.offset_range_factor = offset_range_factor
-        
+        self.num_keypoints = num_keypoints
+        self.num_classes = num_classes
+
         ksizes = [9, 7, 5, 3]
         kk = ksizes[stage_idx]
 
@@ -183,6 +199,15 @@ class DAttentionBaseline(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop, inplace=True)
         self.attn_drop = nn.Dropout(attn_drop, inplace=True)
 
+        self.joint_embed = nn.ModuleList([
+            MLP(self.n_group_channels, self.n_group_channels, 2, 1) for _ in range((self.num_keypoints))])
+        
+        self.class_embed = nn.Linear(self.n_group_channels, num_classes + 1)
+        prior_prob = 0.01
+        bias_value = -math.log((1 - prior_prob) / prior_prob)
+        self.class_embed.bias.data = torch.ones_like(self.class_embed.bias) * bias_value
+        self.bbox_embed = nn.Linear(self.n_group_channels, 4)
+        
         if self.use_pe:
             if self.dwc_pe:
                 self.rpe_table = nn.Conv2d(self.nc, self.nc, 
@@ -287,11 +312,26 @@ class DAttentionBaseline(nn.Module):
         
         if self.use_pe and self.dwc_pe:
             out = out + residual_lepe
-        out = out.reshape(B, C, H, W)
         
+        out = out.reshape(B, C, H * W)
+
+        out_joints = einops.rearrange(out, 'b (g c) m -> (b g) m c', g=self.n_groups, c=self.n_group_channels)
+        output_joints = [self.joint_embed[i](out_joints) for i in range(self.num_keypoints)]
+        output_joints = torch.cat(output_joints, dim=2)
+        output_joints = output_joints.reshape(B, self.n_groups, Hk, Wk, self.num_keypoints, 2)
+
+        output_bbox = self.bbox_embed(out_joints).sigmoid()
+        output_bbox = output_bbox.reshape(B, self.n_groups, Hk, Wk, 4)
+
+        output_class = self.class_embed(out_joints)
+        output_class = output_class.reshape(B, self.n_groups, Hk, Wk, self.num_classes + 1)
+
+        out = out.reshape(B, C, H, W)
+
         y = self.proj_drop(self.proj_out(out))
         
-        return y, pos.reshape(B, self.n_groups, Hk, Wk, 2), reference.reshape(B, self.n_groups, Hk, Wk, 2)
+        return y, pos.reshape(B, self.n_groups, Hk, Wk, 2), reference.reshape(B, self.n_groups, Hk, Wk, 2), \
+            output_joints, output_class, output_bbox
 
 class TransformerMLP(nn.Module):
 

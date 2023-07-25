@@ -20,10 +20,12 @@ from timm.data.transforms import _str_to_pil_interpolation
 
 from .samplers import SubsetRandomSampler
 from torch.utils.data import DataLoader
-    
+from .mot import build_mot, build_mot_posetrack21, build_mot_posetrack18
+import util.misc as utils
+
 def build_loader(config):
     config.defrost()
-    dataset_train, config.MODEL.NUM_CLASSES = build_dataset(is_train=True, config=config)
+    dataset_train, config.MODEL.DAT.num_classes = build_dataset(is_train=True, config=config)
     config.freeze()
     print(f"local rank {config.LOCAL_RANK} / global rank {dist.get_rank()} successfully build train dataset")
     dataset_val, _ = build_dataset(is_train=False, config=config)
@@ -42,6 +44,7 @@ def build_loader(config):
         num_workers=config.DATA.NUM_WORKERS,
         pin_memory=config.DATA.PIN_MEMORY,
         drop_last=True,
+        collate_fn=utils.collate_fn
     )
 
     data_loader_val = DataLoader(
@@ -50,28 +53,51 @@ def build_loader(config):
         shuffle=False,
         num_workers=config.DATA.NUM_WORKERS,
         pin_memory=config.DATA.PIN_MEMORY,
-        drop_last=False
+        drop_last=False,
+        collate_fn=utils.collate_fn
     )
 
     # setup mixup / cutmix
     mixup_fn = None
-    mixup_active = config.AUG.MIXUP > 0 or config.AUG.CUTMIX > 0. or config.AUG.CUTMIX_MINMAX is not None
-    if mixup_active:
-        mixup_fn = Mixup(
-            mixup_alpha=config.AUG.MIXUP, cutmix_alpha=config.AUG.CUTMIX, cutmix_minmax=config.AUG.CUTMIX_MINMAX,
-            prob=config.AUG.MIXUP_PROB, switch_prob=config.AUG.MIXUP_SWITCH_PROB, mode=config.AUG.MIXUP_MODE,
-            label_smoothing=config.MODEL.LABEL_SMOOTHING, num_classes=config.MODEL.NUM_CLASSES)
+    # mixup_active = config.AUG.MIXUP > 0 or config.AUG.CUTMIX > 0. or config.AUG.CUTMIX_MINMAX is not None
+    # if mixup_active:
+    #     mixup_fn = Mixup(
+    #         mixup_alpha=config.AUG.MIXUP, cutmix_alpha=config.AUG.CUTMIX, cutmix_minmax=config.AUG.CUTMIX_MINMAX,
+    #         prob=config.AUG.MIXUP_PROB, switch_prob=config.AUG.MIXUP_SWITCH_PROB, mode=config.AUG.MIXUP_MODE,
+    #         label_smoothing=config.MODEL.LABEL_SMOOTHING, num_classes=config.MODEL.NUM_CLASSES)
 
     return dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn
 
 
 def build_dataset(is_train, config):
+    if config.DATA.DATASET == 'coco':
+        num_classes = 91
+    elif config.DATA.DATASET == 'coco_panoptic':
+        num_classes = 250
+    elif config.DATA.DATASET in ['panoptic', 'coco_person', 'mot', 'mot_crowdhuman', 'crowdhuman', 'mot_coco_person', 'posetrack21', 'posetrack18']:
+        # num_classes = 91
+        num_classes = 1
+        # num_classes = 1
+    else:
+        raise NotImplementedError
+    
+    nb_classes = num_classes - 1 if config.LOSS.focal_loss else num_classes
+
     transform = build_transform(is_train, config)
     if config.DATA.DATASET == 'imagenet':
         prefix = 'train' if is_train else 'val'
         root = os.path.join(config.DATA.DATA_PATH, prefix)
         dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
+    elif config.DATA.DATASET == 'panoptic':
+        prefix = 'train' if is_train else 'val'
+        dataset = build_mot(prefix, config)
+    elif config.DATA.DATASET == 'posetrack21':
+        prefix = 'train' if is_train else 'val'
+        dataset = build_mot_posetrack21(prefix, config)
+    elif config.DATA.DATASET == 'posetrack18':
+        prefix = 'train' if is_train else 'val'
+        dataset = build_mot_posetrack18(prefix, config)
     else:
         raise NotImplementedError("We only support ImageNet Now.")
 
